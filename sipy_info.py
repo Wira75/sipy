@@ -19,12 +19,12 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
 """
-draft = True
+draft = False
 
-release_number = "0.6.0"
-release_code_name = "Otoro-Chutoro Continuum"
-release_day = "03 May"
-release_year = "2025"
+release_number = "0.8.0"
+release_code_name = "Mango Yoghurt Cake"
+release_day = "09 January"
+release_year = "2026"
 release_date = " ".join([release_day, release_year])
 
 if draft: release_number = "(Under Development After) " + release_number
@@ -44,6 +44,7 @@ copyright = """Copyright (C) 2022-%s, Maurice HT Ling (on behalf of SiPy Team)
 credits = """SiPy Project Team
 Project architect: Maurice HT Ling (https://mauriceling.github.io; mauriceling@acm.org)
 Current and Past Developers:
+    3. Wira bin Ambel (https://github.com/Wira75)
     2. Mathialagan Mugundhan (https://github.com/Mugu17777777)
     1. Nicholas TF Tan (https://github.com/NicholasTTF)
 Current and Past Contributors:
@@ -58,6 +59,7 @@ citations = """
 To cite SiPy in publications, use
 
     Tan, NTF, Mugundhan, M, Liu, T, Tan, RYH, Tang, AY, Sim, BJH, Tan, JZH, Ling, MHT. 2025. SiPy – Bringing Python and R to the End-User in a Plugin-Extensible System. Medicon Medical Sciences 8(6): 32-41. https://doi.org/10.55162/MCMS.08.295
+    Ambel, W, Ling, MHT. 2026. SiPy 0.7.0 – R-Based ANOVA and Survival Analyses. Open Access Journal of Science 9: 1-5.
 
 We have invested a lot of time and effort in creating SiPy,please cite it when using it.
 """

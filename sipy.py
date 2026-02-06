@@ -1,5 +1,5 @@
 """!
-SiPy: Statistics in Python (GUI Version)
+SiPy: Statistics in Python
 
 Date created: 9th September 2022
 
@@ -21,10 +21,11 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 """
 import datetime
 import os
-import platform
+import shlex
 import shutil
 import subprocess
 import sys
+import time
 import traceback
 import warnings
 
@@ -40,29 +41,6 @@ import sipy_plugins
 from sipy_pm import PluginManager
 
 
-def find_executable(name):
-    """Helper function to find executable using system commands.
-
-    This is at module level so it's available to SiPy_Shell during
-    initialization (avoids UnboundLocalError when called before a
-    nested definition).
-    """
-    try:
-        if platform.system() == "Windows":
-            # Use 'where' on Windows
-            result = subprocess.run(['where', name], capture_output=True, text=True)
-            if result.returncode == 0:
-                return result.stdout.strip().split('\n')[0]
-        else:
-            # Use 'which' on Unix-like systems
-            result = subprocess.run(['which', name], capture_output=True, text=True)
-            if result.returncode == 0:
-                return result.stdout.strip()
-    except Exception:
-        return None
-    return None
-
-
 class SiPy_Shell(object):
     """!
     Command-line shell for SiPy.
@@ -73,87 +51,18 @@ class SiPy_Shell(object):
         """
         self.count = 1
         self.data = {}
-
-        # Detect operating system and find R executable        
-        system = platform.system()
-        rscript_exe = None        
-        if system == "Windows":
-            # Try portable R first (Windows)
-            portable_r = os.path.abspath("portable_R\\bin\\Rscript.exe")
-            if os.path.exists(portable_r):
-                rscript_exe = portable_r
-            else:
-                # Try using 'where' to find Rscript
-                rscript_exe = find_executable('Rscript.exe')
-                # If not found, try common installation paths
-                if not rscript_exe:
-                    # Check PATH for R
-                    r_cmd = shutil.which('R')
-                    if r_cmd:
-                        r_dir = os.path.dirname(os.path.dirname(r_cmd))
-                        possible_rscript = os.path.join(r_dir, 'bin', 'Rscript.exe')
-                        if os.path.exists(possible_rscript):
-                            rscript_exe = possible_rscript
-                    if not rscript_exe:
-                        # Try installed R on Windows - common paths
-                        win_paths = [
-                            os.path.join(os.environ.get("ProgramFiles", ""), "R"),
-                            os.path.join(os.environ.get("ProgramFiles(x86)", ""), "R"),
-                            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "R")
-                        ]
-                        for base in win_paths:
-                            if os.path.exists(base):
-                                # Find latest R version
-                                r_versions = [d for d in os.listdir(base) if d.startswith("R-")]
-                                if r_versions:
-                                    latest = sorted(r_versions)[-1]
-                                    rpath = os.path.join(base, latest, "bin", "Rscript.exe")
-                                    if os.path.exists(rpath):
-                                        rscript_exe = rpath
-                                        break
-        else:
-            # Unix-like systems (Linux/Mac)
-            # First try using 'which'
-            rscript_exe = find_executable('Rscript')
-            
-            if not rscript_exe:
-                # Try using R to find Rscript
-                r_cmd = shutil.which('R')
-                if r_cmd:
-                    try:
-                        # Ask R where it is installed
-                        result = subprocess.run([r_cmd, '--slave', '-e', 
-                                              'cat(file.path(R.home("bin"), "Rscript"))'],
-                                             capture_output=True, text=True)
-                        if result.returncode == 0:
-                            possible_rscript = result.stdout.strip()
-                            if os.path.exists(possible_rscript):
-                                rscript_exe = possible_rscript
-                    except:
-                        pass
-            if not rscript_exe:
-                # Fall back to common Unix paths
-                unix_paths = [
-                    "/usr/bin/Rscript",
-                    "/usr/local/bin/Rscript",
-                    "/opt/local/bin/Rscript",  # MacPorts
-                    "/usr/lib/R/bin/Rscript",  # Some Linux distributions
-                    os.path.expanduser("~/Library/R/bin/Rscript"),  # Mac user install
-                    "/Library/Frameworks/R.framework/Resources/bin/Rscript"  # Mac framework install
-                ]
-                for path in unix_paths:
-                    if os.path.exists(path):
-                        rscript_exe = path
-                        break
         
         self.environment = {"cwd": os.getcwd(),
+                            "julia_exe": libsipy.utils.find_julia_executable(),
                             "plugin_directory": "sipy_plugins",
                             "plugin_system": True,
                             "plugin_suppress": True,
                             "prompt": ">>>",
-                            "rscript_exe": rscript_exe,
+                            "python_exe": sys.executable,
+                            "rscript_exe": libsipy.utils.find_R_executable(),
                             "separator": ",",
                             "sipy_directory": os.getcwd(),
+                            "timing": False,
                             "verbosity": 0}
         self.history = {}
         self.modules = [m for m in dir(libsipy) 
@@ -1591,6 +1500,124 @@ class SiPy_Shell(object):
         print(retR)
         return retR
 
+    def do_execute(self, operand, kwargs):
+        """!
+        Performs external script execution.
+
+        Commands: 
+            execute r <script path> {keyword parameters to the script file}
+            execute julia <script path> {keyword parameters to the script file}
+            execute python <script path> {keyword parameters to the script file}
+            execute shell command=<command to execute>
+            .<command to execute>
+
+        @return: String containing results of command execution
+        """
+        if operand[0].lower() != "shell":
+            script_path = os.path.abspath(operand[1])
+        if operand[0].lower() in ["r"]:
+            """
+            execute r <script path> {keyword parameters to the script file}
+
+            Example: 
+            execute r example_scripts\\r_lm.R inputfile=example_scripts\\lm_data.csv formula="yN ~ x1 + x2 + x3 + x4 + x5"
+            """
+            retR = libsipy.r_wrap.execute(script_path, kwargs, self.environment["rscript_exe"])
+            retR = "\n".join(retR)
+        elif operand[0].lower() in ["julia", "jl"]:
+            """
+            execute julia <script path> {keyword parameters to the script file}
+
+            Example: 
+            execute julia example_scripts\\julia_lm.jl inputfile=example_scripts\\lm_data.csv response=yN predictors="x1,x2,x3,x4,x5"
+            """
+            retR = libsipy.julia_wrap.execute(script_path, kwargs, self.environment["julia_exe"])
+            retR = "\n".join(retR)
+        elif operand[0].lower() in ["python", "py"]:
+            """
+            execute python <script path> {keyword parameters to the script file}
+
+            Example: 
+            execute python example_scripts\\python_lm.py inputfile=example_scripts\\lm_data.csv response=yN predictors="x1,x2,x3,x4,x5"
+            """
+            retR = libsipy.utils.execute_python(script_path, kwargs, self.environment["python_exe"])
+            retR = "\n".join(retR)
+        elif operand[0].lower() in ["command", "cmd", "shell", "sh"]:
+            """
+            execute shell command=<command to execute>
+            .<command to execute>
+
+            Example: 
+            execute shell command="dir /p | findstr "sipy*""
+            .dir /p | findstr "sipy*"
+            """
+            command = kwargs["command"]
+            if command.startswith('"') and command.endswith('"'):
+                command = command[1:-1]
+            retR = libsipy.utils.execute_shell(command)
+            retR = "\n".join(retR)
+        else: 
+            retR = "Unknown sub-operation: %s" % operand[0].lower()
+        print(retR)
+        return retR
+
+    def do_Julia_regression(self, operand, kwargs):
+        """!
+        Performs Julia-based regression(s).
+
+        Commands: 
+            jregress lasso data=<dataframe> y=<dependent variable> x=<independent variable 1>,<independent variable 2>, ..., <independent variable n>
+            jregress {lm|linear|lin} data=<dataframe> y=<dependent variable> x=<independent variable 1>,<independent variable 2>, ..., <independent variable n>
+
+        @return: String containing results of command execution
+        """
+        df = self.data[kwargs["data"]]
+        dependent_variable = kwargs["y"]
+        if ("x" not in kwargs) or (kwargs["x"].lower() in ["none", "all"]):
+             independent_variables = None
+        else:
+            independent_variables = [x.strip() for x in kwargs["x"].split(self.environment["separator"])]
+        if operand[0].lower() in ["lasso"]:
+            """
+            jregress lasso data=<dataframe> y=<dependent variable> x=<independent variable 1>,<independent variable 2>, ..., <independent variable n>
+
+            Example: 
+            let yN be clist 1.2, 2.3, 3.1, 4.8, 5.6, 6.2, 7.9, 8.4, 9.7, 10.5
+            let yB be dlist 1, 0, 1, 0, 1, 0, 1, 1, 0, 1
+            let yC be slist A, B, C, A, B, C, A, B, C, A
+            let x1 be clist 2, 3, 5, 7, 11, 13, 17, 19, 23, 29
+            let x2 be clist 1, 4, 9, 16, 25, 36, 49, 64, 81, 100
+            let x3 be clist 5, 8, 6, 10, 12, 14, 18, 20, 24, 30
+            let x4 be clist 3.1, 5.2, 2.7, 8.6, 9.1, 4.4, 7.8, 6.5, 10.2, 11.3
+            let x5 be clist 100, 90, 80, 70, 60, 50, 40, 30, 20, 10
+            let df be dataframe yN:yN yB:yB yC:yC x1:x1 x2:x2 x3:x3 x4:x4 x5:x5
+            jregress lasso data=df y=yN x=x1,x2,x3,x4,x5
+            """
+            retR = libsipy.julia_wrap.regression(df, dependent_variable, independent_variables, "lasso", self.environment["julia_exe"])
+            retR = "\n".join(retR)
+        elif operand[0].lower() in ["lm", "linear", "lin"]:
+            """
+            jregress {lm|linear|lin} data=<dataframe> y=<dependent variable> x=<independent variable 1>,<independent variable 2>, ..., <independent variable n>
+
+            Example: 
+            let yN be clist 1.2, 2.3, 3.1, 4.8, 5.6, 6.2, 7.9, 8.4, 9.7, 10.5
+            let yB be dlist 1, 0, 1, 0, 1, 0, 1, 1, 0, 1
+            let yC be slist A, B, C, A, B, C, A, B, C, A
+            let x1 be clist 2, 3, 5, 7, 11, 13, 17, 19, 23, 29
+            let x2 be clist 1, 4, 9, 16, 25, 36, 49, 64, 81, 100
+            let x3 be clist 5, 8, 6, 10, 12, 14, 18, 20, 24, 30
+            let x4 be clist 3.1, 5.2, 2.7, 8.6, 9.1, 4.4, 7.8, 6.5, 10.2, 11.3
+            let x5 be clist 100, 90, 80, 70, 60, 50, 40, 30, 20, 10
+            let df be dataframe yN:yN yB:yB yC:yC x1:x1 x2:x2 x3:x3 x4:x4 x5:x5
+            jregress lm data=df y=yN x=x1,x2,x3,x4,x5
+            """
+            retR = libsipy.julia_wrap.regression(df, dependent_variable, independent_variables, "lm", self.environment["julia_exe"])
+            retR = "\n".join(retR)
+        else: 
+            retR = "Unknown sub-operation: %s" % operand[0].lower()
+        print(retR)
+        return retR
+    
     def do_let(self, operand, kwargs):
         """!
         Assign a value or list of values to a variable.
@@ -1599,6 +1626,7 @@ class SiPy_Shell(object):
             let <variable_name> be {numeric|number|num|integer|int|float|value} <value>
             let <variable_name> be {list|series|tuple|vector} <comma-separated values>
             let <variable_name> be {dataframe|df|frame|table} <data descriptor>
+            let <variable_name> csv <file name>
             let <new_variable_name> from {dataframe|df|frame|table} <existing_variable_name> <series name>
             let <new_variable_name> melt <existing_variable_name> factor_name=<name of new factor> value_name=<name of value>
             let <new_variable_name> merge <existing_variable_name A> <existing_variable_name B> on=<column to merge on> how=<type of merge>
@@ -1641,6 +1669,10 @@ class SiPy_Shell(object):
                     source_data[d[0]] = self.data[d[1]]
                 self.data[variable_name] = pd.concat(source_data, axis=1)
                 retR = "%s = %s" % (variable_name, str(data_values))
+        elif operand[1].lower() == "csv":
+                csv_path = os.path.abspath(operand[2])
+                self.data[variable_name].to_csv(csv_path, index=False)
+                retR = "%s saved as %s" % (variable_name, csv_path)
         elif operand[1].lower() == "from" and operand[2].lower() in ["dataframe", "df", "frame", "table"]:
             if len(operand) == 5:
                 # let <new_variable_name> from {dataframe|df|frame|table} <existing_variable_name> <series name>
@@ -3215,6 +3247,11 @@ class SiPy_Shell(object):
             old = self.environment["separator"]
             self.environment["separator"] = operand[1]
             retR = "set separator from %s to %s" % (old, operand[1])
+        elif operand[0].lower() in ["timing"]:
+            if operand[1].lower() in ["false", "f", "no", "n"]: timing = False
+            else: timing = True
+            self.environment["timing"] = timing
+            retR = "set timing to %s" % timing
         else: 
             retR = "Unknown sub-operation: %s" % operand[0].lower()
         print(retR)
@@ -3863,6 +3900,8 @@ class SiPy_Shell(object):
         elif operator == "correlate": return self.do_correlate(operand, kwargs)
         elif operator == "describe": return self.do_describe(operand, kwargs)
         elif operator == "environment": return self.do_environment(operand, kwargs)
+        elif operator == "execute": return self.do_execute(operand, kwargs)
+        elif operator == "jregress": return self.do_Julia_regression(operand, kwargs)
         elif operator == "let": return self.do_let(operand, kwargs)
         elif operator == "mean": return self.do_mean(operand, kwargs)
         elif operator == "normality": return self.do_normality(operand, kwargs)
@@ -3891,6 +3930,23 @@ class SiPy_Shell(object):
         @param statement String: command-line statement
         @return: String containing results of command execution
         """
+        def tokenize(statement):
+            result = []
+            in_quotes = False
+            current = []
+            for char in statement:
+                if char == '"' or char == "'":
+                    in_quotes = not in_quotes
+                    current.append(char)
+                elif char == ' ' and not in_quotes:
+                    if current:
+                        result.append(''.join(current))
+                        current = []
+                else:
+                    current.append(char)
+            if current:
+                result.append(''.join(current))
+            return result
         def dictionize(operand):
             op_list = []
             op_dict = {}
@@ -3901,6 +3957,12 @@ class SiPy_Shell(object):
                     op = [x.strip() for x in op.split("=")]
                     op_dict[op[0]] = op[1]
             return (op_list, op_dict)
+        def special_statement(statement):
+            statement = statement.strip()
+            if statement[0] == ".":
+                statement = statement[1:].strip()
+                retR = self.command_processor("execute", ["shell"], {"command": statement})
+            return retR
         try:
             self.history[str(self.count)] = statement
             if statement.lower() in ["citation", "citation;", "copyright", "copyright;", "credits", "credits;", "exit", "exit;", "license", "license;", "quit", "quit;"]:
@@ -3908,10 +3970,13 @@ class SiPy_Shell(object):
                  if retR == "exit": return "exit"
             else:
                 statement = statement.strip()
-                statement = [x.strip() for x in statement.split()]
-                operator = statement[0].lower()
-                (operand, kwargs) = dictionize(statement[1:])
-                retR = self.command_processor(operator, operand, kwargs)
+                if statement[0] in ["."]:
+                    retR = special_statement(statement)
+                else:
+                    statement = tokenize(statement)
+                    operator = statement[0].lower()
+                    (operand, kwargs) = dictionize(statement[1:])
+                    retR = self.command_processor(operator, operand, kwargs)
             self.result[str(self.count)] = retR
             self.count = self.count + 1
             return retR
@@ -3928,11 +3993,18 @@ class SiPy_Shell(object):
         """
         self.header()
         while True:
+            if self.environment["timing"]: start_time = time.time()
             statement = input("SiPy: %s %s " % (str(self.count), self.environment["prompt"])).strip() 
             if len(statement) == 0: pass
             elif statement.lower() in ["exit", "exit()"]: return 0
             elif statement.startswith("#"): continue
             else: _ = self.interpret(statement)
+            if self.environment["timing"]: 
+                try:
+                    end_time = time.time()
+                    elapsed_time = end_time - start_time
+                    print(f"The code executed in {elapsed_time:.5f} seconds")
+                except UnboundLocalError: pass
             print("")
 
     def cmdScript(self, script):
@@ -4068,14 +4140,47 @@ class SiPy_Shell(object):
                     print("")
         window.close()
 
+def run_jupyter(cwd=os.getcwd()):
+    target_dir = "sipy_kernel"
+    sipy_py_path = cwd + os.sep + "sipy.py"
+    custom_env = os.environ.copy()
+    custom_env["SIPY_PY"] = sipy_py_path
+    print(f"Changing directory to: {target_dir}")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-e", "."], 
+        cwd=target_dir, 
+        check=True)
+    print("Pip install complete.")
+    subprocess.run(
+        ["sipy-kernel-install"], 
+        cwd=target_dir, 
+        env=custom_env, 
+        check=True)
+    print("sipy-kernel-install complete.")
+    if os.name == 'posix': # Linux/macOS
+        print("Launching Jupyter Lab in the background...")
+        subprocess.Popen(["nohup", "jupyter", "lab", "--no-browser", "&"], 
+                         cwd=cwd, 
+                         env=custom_env, 
+                         shell=True,
+                         stdout=subprocess.PIPE, # Optional: pipe output to avoid cluttering current terminal
+                         stderr=subprocess.PIPE)
+        print("Jupyter Lab started. The original Python script will now exit.")
+        print("You can find the URL/token in the terminal output or likely in nohup.out file in the sipy_kernel directory.")
+    else: # Windows (might require different handling for backgrounding)
+        print("Launching Jupyter Lab (Windows mode). It will block this script until closed.")
+        subprocess.run(["jupyter", "lab"], cwd=cwd, env=custom_env)
+
 if __name__ == "__main__":
     shell = SiPy_Shell()
     if len(sys.argv) == 1:
-        shell.basic_gui()
-        sys.exit()
-    elif len(sys.argv) == 2 and sys.argv[1].lower() == "shell":
         shell.cmdLoop()
         sys.exit()
+    elif len(sys.argv) == 2 and sys.argv[1].lower() == "bgui":
+        shell.basic_gui()
+        sys.exit()
+    elif len(sys.argv) == 2 and sys.argv[1].lower() == "jupyter":
+        run_jupyter(os.getcwd())
     elif (len(sys.argv) == 3) and (sys.argv[1].lower() == "script_execute"):
         scriptfile = os.path.abspath(sys.argv[2])
         shell.runScript(scriptfile, "script_execute")
