@@ -1892,6 +1892,382 @@ class SiPy_Shell(object):
         print(retR)
         return retR
 
+    def do_plot(self, operand, kwargs):
+        """!
+        Creates plots using seaborn plotting functions.
+
+        Commands: 
+            plot histplot {list|series|tuple|vector} <variable name>
+            plot histplot {list|series|tuple|vector} data=<variable name>
+            plot histplot {list|series|tuple|vector} data=<variable name> bins=<int> kde=<bool> ...
+            plot histplot {dataframe|df|frame|table} data=<variable name>.<column name> bins=<int> kde=<bool> ...
+            
+            plot boxplot {dataframe|df|frame|table} <variable name> x=<column name> y=<column name>
+            plot boxplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name>
+            plot boxplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name> hue=<column name> palette=<palette name> ...
+            
+            plot scatterplot {dataframe|df|frame|table} <variable name> x=<column name> y=<column name>
+            plot scatterplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name>
+            plot scatterplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name> hue=<column name> size=<column name> palette=<palette name> ...
+            
+            plot regplot {dataframe|df|frame|table} <variable name> x=<column name> y=<column name>
+            plot regplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name>
+            plot regplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name> order=<int> scatter=<bool> color=<color> ...
+
+        @return: String containing results of command execution
+        """
+        plot_type = operand[0].lower() if len(operand) > 0 else None
+        if plot_type in ["histplot", "histogram", "hist"]:
+            data_type = operand[1].lower() if len(operand) > 1 else None
+            
+            # Handle list/series/tuple/vector data types
+            if data_type in ["list", "series", "tuple", "vector"]:
+                # Handle positional syntax: plot histplot list variable_name
+                if "data" not in kwargs:
+                    """
+                    plot histplot {list|series|tuple|vector} <variable name>
+                    
+                    Example:
+                    let x be list 1,2,3,4,5,6,7,8,9
+                    plot histplot list x
+                    """
+                    if len(operand) < 3:
+                        retR = "Error: Variable name required for histplot"
+                    else:
+                        data_values = self.data[operand[2]]
+                        libsipy.plot.seaborn_histogram(data_values)
+                        retR = "Histogram plotted successfully for variable: %s" % operand[2]
+                # Handle keyword syntax: plot histplot list data=variable_name [kwargs]
+                else:
+                    """
+                    plot histplot {list|series|tuple|vector} data=<variable name>
+                    plot histplot {list|series|tuple|vector} data=<variable name> bins=20 kde=true
+                    
+                    Example:
+                    let x be list 1,2,3,4,5,6,7,8,9
+                    plot histplot list data=x
+                    plot histplot list data=x bins=20 kde=true
+                    """
+                    data_values = self.data[kwargs["data"]]
+                    
+                    # Extract and prepare plotting kwargs (excluding 'data' key)
+                    plot_kwargs = {k: v for k, v in kwargs.items() if k != "data"}
+                    
+                    # Convert string boolean values to actual booleans (e.g., "true" -> True)
+                    # Convert string integers to actual integers (e.g., "20" -> 20 for bins parameter)
+                    for key in plot_kwargs:
+                        if plot_kwargs[key].lower() in ["true", "false"]:
+                            plot_kwargs[key] = plot_kwargs[key].lower() == "true"
+                        # Try to convert to int if it looks like a number
+                        elif key in ["bins"]:
+                            try:
+                                plot_kwargs[key] = int(plot_kwargs[key])
+                            except ValueError:
+                                pass
+                    
+                    libsipy.plot.seaborn_histogram(data_values, **plot_kwargs)
+                    retR = "Histogram plotted successfully for variable: %s" % kwargs["data"]
+            
+            # Handle dataframe/df/frame/table data types
+            elif data_type in ["dataframe", "df", "frame", "table"] and len(operand) == 2:
+                """
+                plot histplot {dataframe|df|frame|table} data=<variable name>.<column name>
+                plot histplot {dataframe|df|frame|table} data=<variable name>.<column name> bins=20 kde=true
+                
+                Example:
+                let x be list 1,2,3,4,5
+                let y be list 2,3,4,5,6
+                let df be dataframe x:x y:y
+                plot histplot dataframe data=df.x
+                plot histplot dataframe data=df.y bins=10 kde=true
+                """
+                # Parse the dataframe.column format
+                d = [x.strip() for x in kwargs["data"].split(".")]
+                if len(d) != 2:
+                    retR = "Error: Expected format data=dataframe_name.column_name"
+                else:
+                    df_name = d[0]
+                    column_name = d[1]
+                    data_values = libsipy.data_wrangler.df_extract(df=self.data[df_name], columns=column_name, rtype="list")
+                    
+                    # Extract and prepare plotting kwargs (excluding 'data' key)
+                    plot_kwargs = {k: v for k, v in kwargs.items() if k != "data"}
+                    
+                    # Convert string boolean values to actual booleans
+                    for key in plot_kwargs:
+                        if plot_kwargs[key].lower() in ["true", "false"]:
+                            plot_kwargs[key] = plot_kwargs[key].lower() == "true"
+                        # Try to convert to int if it looks like a number
+                        elif key in ["bins"]:
+                            try:
+                                plot_kwargs[key] = int(plot_kwargs[key])
+                            except ValueError:
+                                pass
+                    
+                    libsipy.plot.seaborn_histogram(data_values, **plot_kwargs)
+                    retR = "Histogram plotted successfully for column '%s' in dataframe '%s'" % (column_name, df_name)
+            else:
+                retR = "Error: Unsupported data type '%s' for histplot. Use: list, series, tuple, vector, or dataframe" % data_type
+        
+        elif plot_type in ["boxplot", "box"]:
+            data_type = operand[1].lower() if len(operand) > 1 else None
+            
+            # Handle dataframe/df/frame/table data types
+            if data_type in ["dataframe", "df", "frame", "table"]:
+                if "data" not in kwargs:
+                    """
+                    plot boxplot {dataframe|df|frame|table} <variable name> x=<column name> y=<column name>
+                    plot boxplot {dataframe|df|frame|table} <variable name> x=<column name> y=<column name> hue=<column name>
+                    
+                    Example:
+                    let x be list 1,2,3,4,5
+                    let y be list 2,3,4,5,6
+                    let df be dataframe x:x y:y
+                    plot boxplot dataframe df x=x y=y
+                    """
+                    if len(operand) < 3:
+                        retR = "Error: Variable name required for boxplot"
+                    else:
+                        df_name = operand[2]
+                        # Extract kwargs for x and y from operands if provided
+                        plot_kwargs = {}
+                        if len(operand) > 3:
+                            # Handle any positional kwargs (if needed)
+                            pass
+                        
+                        # Check if x and y are in kwargs
+                        if "x" not in kwargs or "y" not in kwargs:
+                            retR = "Error: Both 'x' and 'y' parameters are required for boxplot"
+                        else:
+                            plot_kwargs = {k: v for k, v in kwargs.items()}
+                            libsipy.plot.seaborn_boxplot(self.data[df_name], **plot_kwargs)
+                            retR = "Boxplot plotted successfully for dataframe '%s'" % df_name
+                else:
+                    """
+                    plot boxplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name>
+                    plot boxplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name> hue=<column name> palette=Set2
+                    
+                    Example:
+                    let x be list A,A,A,B,B,B
+                    let y be list 1,2,3,4,5,6
+                    let df be dataframe x:x y:y
+                    plot boxplot dataframe data=df x=x y=y
+                    """
+                    if "x" not in kwargs or "y" not in kwargs:
+                        retR = "Error: Both 'x' and 'y' parameters are required for boxplot"
+                    else:
+                        df_name = kwargs["data"]
+                        
+                        # Extract and prepare plotting kwargs (keeping all parameters including x and y)
+                        plot_kwargs = {k: v for k, v in kwargs.items() if k != "data"}
+                        
+                        # Convert string boolean values to actual booleans
+                        for key in plot_kwargs:
+                            if isinstance(plot_kwargs[key], str) and plot_kwargs[key].lower() in ["true", "false"]:
+                                plot_kwargs[key] = plot_kwargs[key].lower() == "true"
+                        
+                        libsipy.plot.seaborn_boxplot(self.data[df_name], **plot_kwargs)
+                        retR = "Boxplot plotted successfully for dataframe '%s'" % df_name
+            else:
+                retR = "Error: Unsupported data type '%s' for boxplot. Use: dataframe, df, frame, or table" % data_type
+        
+        elif plot_type in ["scatterplot", "scatter"]:
+            data_type = operand[1].lower() if len(operand) > 1 else None
+            
+            # Handle dataframe/df/frame/table data types
+            if data_type in ["dataframe", "df", "frame", "table"]:
+                if "data" not in kwargs:
+                    """
+                    plot scatterplot {dataframe|df|frame|table} <variable name> x=<column name> y=<column name>
+                    plot scatterplot {dataframe|df|frame|table} <variable name> x=<column name> y=<column name> hue=<column name>
+                    
+                    Example:
+                    let x be list 1,2,3,4,5
+                    let y be list 2,4,6,8,10
+                    let df be dataframe x:x y:y
+                    plot scatterplot dataframe df x=x y=y
+                    """
+                    if len(operand) < 3:
+                        retR = "Error: Variable name required for scatterplot"
+                    else:
+                        df_name = operand[2]
+                        # Extract kwargs for x and y from operands if provided
+                        plot_kwargs = {}
+                        if len(operand) > 3:
+                            # Handle any positional kwargs (if needed)
+                            pass
+                        
+                        # Check if x and y are in kwargs
+                        if "x" not in kwargs or "y" not in kwargs:
+                            retR = "Error: Both 'x' and 'y' parameters are required for scatterplot"
+                        else:
+                            plot_kwargs = {k: v for k, v in kwargs.items()}
+                            libsipy.plot.seaborn_scatterplot(self.data[df_name], **plot_kwargs)
+                            retR = "Scatterplot plotted successfully for dataframe '%s'" % df_name
+                else:
+                    """
+                    plot scatterplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name>
+                    plot scatterplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name> hue=<column name> size=<column name> palette=Set2
+                    
+                    Example:
+                    let x be list 1,2,3,4,5
+                    let y be list 2,4,6,8,10
+                    let df be dataframe x:x y:y
+                    plot scatterplot dataframe data=df x=x y=y
+                    """
+                    if "x" not in kwargs or "y" not in kwargs:
+                        retR = "Error: Both 'x' and 'y' parameters are required for scatterplot"
+                    else:
+                        df_name = kwargs["data"]
+                        
+                        # Extract and prepare plotting kwargs (keeping all parameters including x and y)
+                        plot_kwargs = {k: v for k, v in kwargs.items() if k != "data"}
+                        
+                        # Convert string boolean values to actual booleans
+                        for key in plot_kwargs:
+                            if isinstance(plot_kwargs[key], str) and plot_kwargs[key].lower() in ["true", "false"]:
+                                plot_kwargs[key] = plot_kwargs[key].lower() == "true"
+                        
+                        libsipy.plot.seaborn_scatterplot(self.data[df_name], **plot_kwargs)
+                        retR = "Scatterplot plotted successfully for dataframe '%s'" % df_name
+            else:
+                retR = "Error: Unsupported data type '%s' for scatterplot. Use: dataframe, df, frame, or table" % data_type
+        
+        elif plot_type in ["regplot", "reg", "regressionplot", "regression"]:
+            data_type = operand[1].lower() if len(operand) > 1 else None
+            
+            # Handle dataframe/df/frame/table data types
+            if data_type in ["dataframe", "df", "frame", "table"]:
+                if "data" not in kwargs:
+                    """
+                    plot regplot {dataframe|df|frame|table} <variable name> x=<column name> y=<column name>
+                    plot regplot {dataframe|df|frame|table} <variable name> x=<column name> y=<column name> order=2
+                    
+                    Example:
+                    let x be list 1,2,3,4,5
+                    let y be list 2,4,5,4,5
+                    let df be dataframe x:x y:y
+                    plot regplot dataframe df x=x y=y
+                    plot regplot dataframe df x=x y=y order=2
+                    """
+                    if len(operand) < 3:
+                        retR = "Error: Variable name required for regplot"
+                    else:
+                        df_name = operand[2]
+                        # Extract kwargs for x and y from operands if provided
+                        plot_kwargs = {}
+                        if len(operand) > 3:
+                            # Handle any positional kwargs (if needed)
+                            pass
+                        
+                        # Check if x and y are in kwargs
+                        if "x" not in kwargs or "y" not in kwargs:
+                            retR = "Error: Both 'x' and 'y' parameters are required for regplot"
+                        else:
+                            plot_kwargs = {k: v for k, v in kwargs.items()}
+                            # Convert string integers and booleans
+                            for key in plot_kwargs:
+                                if isinstance(plot_kwargs[key], str) and plot_kwargs[key].lower() in ["true", "false"]:
+                                    plot_kwargs[key] = plot_kwargs[key].lower() == "true"
+                                elif key in ["order"]:
+                                    try:
+                                        plot_kwargs[key] = int(plot_kwargs[key])
+                                    except ValueError:
+                                        pass
+                            libsipy.plot.seaborn_regplot(self.data[df_name], **plot_kwargs)
+                            retR = "Regplot plotted successfully for dataframe '%s'" % df_name
+                else:
+                    """
+                    plot regplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name>
+                    plot regplot {dataframe|df|frame|table} data=<variable name> x=<column name> y=<column name> order=2 scatter=true color=red
+                    
+                    Example:
+                    let x be list 1,2,3,4,5
+                    let y be list 2,4,5,4,5
+                    let df be dataframe x:x y:y
+                    plot regplot dataframe data=df x=x y=y
+                    plot regplot dataframe data=df x=x y=y order=2 scatter=true
+                    """
+                    if "x" not in kwargs or "y" not in kwargs:
+                        retR = "Error: Both 'x' and 'y' parameters are required for regplot"
+                    else:
+                        df_name = kwargs["data"]
+                        
+                        # Extract and prepare plotting kwargs (keeping all parameters including x and y)
+                        plot_kwargs = {k: v for k, v in kwargs.items() if k != "data"}
+                        
+                        # Convert string boolean values and integers to actual types
+                        for key in plot_kwargs:
+                            if isinstance(plot_kwargs[key], str) and plot_kwargs[key].lower() in ["true", "false"]:
+                                plot_kwargs[key] = plot_kwargs[key].lower() == "true"
+                            elif key in ["order"]:
+                                try:
+                                    plot_kwargs[key] = int(plot_kwargs[key])
+                                except ValueError:
+                                    pass
+                        
+                        libsipy.plot.seaborn_regplot(self.data[df_name], **plot_kwargs)
+                        retR = "Regplot plotted successfully for dataframe '%s'" % df_name
+            else:
+                retR = "Error: Unsupported data type '%s' for regplot. Use: dataframe, df, frame, or table" % data_type
+        elif plot_type in ["heatmap", "correlation"]:
+            data_type = operand[1].lower() if len(operand) > 1 else None
+            
+            # Handle dataframe/df/frame/table data types
+            if data_type in ["dataframe", "df", "frame", "table"]:
+                if "data" not in kwargs:
+                    """
+                    plot heatmap {dataframe|df|frame|table} <variable name>
+                    
+                    Example:
+                    read excel surdata from data/survival_dataset.xlsx data
+                    plot heatmap dataframe surdata
+                    """
+                    if len(operand) < 3:
+                        retR = "Error: Variable name required for heatmap"
+                    else:
+                        df_name = operand[2]
+                        # Extract kwargs for x and y from operands if provided
+                        plot_kwargs = {}
+                        if len(operand) > 3:
+                            # Handle any positional kwargs (if needed)
+                            pass
+                        correlations = self.data[df_name].corr(numeric_only=True)
+                        libsipy.plot.seaborn_heatmap(correlations, **plot_kwargs)
+                        retR = "Heatmap plotted successfully for dataframe '%s'" % df_name
+                else:
+                    """
+                    plot heatmap {dataframe|df|frame|table} data=<variable name>
+                    
+                    Example:
+                    read excel surdata from data/survival_dataset.xlsx data
+                    plot heatmap dataframe data=surdata
+                    """
+                    df_name = kwargs["data"]
+                    
+                    # Extract and prepare plotting kwargs (keeping all parameters including x and y)
+                    plot_kwargs = {k: v for k, v in kwargs.items() if k != "data"}
+                    
+                    # Convert string boolean values and integers to actual types
+                    for key in plot_kwargs:
+                        if isinstance(plot_kwargs[key], str) and plot_kwargs[key].lower() in ["true", "false"]:
+                            plot_kwargs[key] = plot_kwargs[key].lower() == "true"
+                        elif key in ["order"]:
+                            try:
+                                plot_kwargs[key] = int(plot_kwargs[key])
+                            except ValueError:
+                                pass
+                    correlations = self.data[df_name].corr(numeric_only=True)
+                    libsipy.plot.seaborn_heatmap(correlations, **plot_kwargs)
+                    retR = "Regplot plotted successfully for dataframe '%s'" % df_name
+            else:
+                retR = "Error: Unsupported data type '%s' for heatmap. Use: dataframe, df, frame, or table" % data_type
+        else:
+            retR = "Unknown plot type: %s. Currently supported: histplot, boxplot, scatterplot, regplot" % plot_type
+        
+        print(retR)
+        return retR
+    
     def do_plugin(self, operand, kwargs):
         """!
         Executes analysis using plugin.
@@ -3223,6 +3599,7 @@ class SiPy_Shell(object):
             set plugin_suppress {True|False}
             set prompt <new prompt>
             set separator <new separator>
+            set timing {True|False}
 
         @return: String containing results of command execution
         """
@@ -3905,6 +4282,7 @@ class SiPy_Shell(object):
         elif operator == "let": return self.do_let(operand, kwargs)
         elif operator == "mean": return self.do_mean(operand, kwargs)
         elif operator == "normality": return self.do_normality(operand, kwargs)
+        elif operator == "plot": return self.do_plot(operand, kwargs)
         elif operator == "read": return self.do_read(operand, kwargs)
         elif operator == "regress": return self.do_regression(operand, kwargs)
         elif operator == "ranova": return self.do_R_anova(operand, kwargs)
